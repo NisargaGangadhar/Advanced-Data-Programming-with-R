@@ -1,0 +1,279 @@
+---
+title: "Adv Data Prog with R - Final Project"
+author: "Nisarga G-19203753"
+date: "16/08/2020"
+output: html_document
+runtime: shiny
+---
+
+```{r}
+#clean up the environment of variables before we start
+rm(list=ls())
+```
+
+Load all the required libraries for further computations:
+```{r,warning=FALSE,message=FALSE}
+library(readr)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(shiny)
+library(rstan)
+library(shinystan)
+library(ggiraph)
+library(gganimate)
+library(reshape2)
+library(tidyr)
+library(ggmap)
+library(lubridate) 
+```
+
+*Question 1:*
+Import dataset as tibble and make columns 2 and 14 as factor and year as integer:
+```{r}
+exo_data <- read.csv("C:/Users/Nisarga Gangadhar/Downloads/exo_data.csv")
+exo_data %<>% as_tibble # now the dataset is a tibble
+
+#making column 2,14 as factor, 15 as integer
+exo_data$flag %<>% as.factor
+exo_data$meth %<>% as.factor
+exo_data$year %<>% as.integer
+
+#view tibble
+glimpse(exo_data)#ensures column 2 and 14 are factors,15 as integer. 
+```
+
+*Question 2:*
+Exclude the exoplanets with an unknown method of discovery:
+```{r}
+exo_data %<>% filter(meth != '')
+```
+
+*Question 3:*
+A boxplot of relationship between log distance from sun and method of discovery.
+```{r,warning=FALSE}
+ggplot(exo_data,aes(x=meth,y=log(dist),fill=meth))+geom_boxplot()+labs(y='log(distanace)',x='method of discovery')+ggtitle('Relationship with log(dist) and method of discovery')
+```
+
+*Question 4:*
+scatterplots of the log-mass versus log-distances, separating by methods of discovery.
+```{r}
+#click will open exoplanet's catalogue
+exo_data$onclick <- sprintf("window.open(\"%s%s\")",
+                         "http://www.openexoplanetcatalogue.com/planet/",
+                         as.character(exo_data$id))
+#create plot
+gg_exo <- ggplot(exo_data,
+                  aes(x = log(dist),
+                      y = log(mass),
+                      color = meth)) +
+  geom_point_interactive(aes(data_id = id,
+                             tooltip = id,
+                             onclick = onclick)) +
+  scale_color_discrete(name="discovery method") +labs(title="Scatterplots of log-mass vs log-distances")+
+
+  theme_bw()
+
+# ggplot graphics with animation using ggiraph
+ggiraph(code = print(gg_exo))
+```
+
+
+*Question 5:*
+Renaming and creating a new column:
+```{r}
+#renaming radius to jupiter_radius
+exo_data %<>% rename(jupiter_radius = radius)
+#creating new column earth_radius
+exo_data %<>% mutate(earth_radius = jupiter_radius * 11.2)
+```
+
+*Question 6:*
+By applying kmeans to only two columns LogEradius and LogPeriod excluding missing values with 4 clusters, 416 of exoplanets belong to 1st cluster, 385 of them belong to 2nd cluster, 1133 of them belong to 3rd cluster and remaining 798 of exoplanets belong to 4th cluster. 
+```{r,warning=FALSE}
+#by setting seed we get same cluster everytime
+set.seed(19203753)
+# create new dataframe for clustering from data
+exo_data2 <- exo_data 
+
+# To focus only on the rows where radius of Earth and period have no missing values
+exo_data2 <- exo_data %>% drop_na(earth_radius, period)  
+
+# log-radius of Earth and log-period
+exo_data2 %<>%mutate(LogERadius = log(earth_radius),LogPeriod  = log(period))
+
+# Seperate data to perform kmeans
+edata_kmeans <- exo_data2 %>%select(LogERadius,LogPeriod)
+
+# Perform kmeans
+fit_kmeans  <- kmeans(edata_kmeans, 4)
+
+# To observe the clustering split
+table(fit_kmeans$cluster)
+```
+*Question 7:*
+Adding clustering labels:
+with the help of the link we find the largest cluster is "Rocky", the second largest cluster is "others", the third largest cluster is "cold_gas_giants" and the smallest cluster is "hot_jupiters".
+```{r,warning=FALSE}
+# To convert the variable of clusters to a factor
+fit_kmeans$cluster <- as.factor(fit_kmeans$cluster)
+
+# Scatter plot of the clusters using ggplot
+ggplot(edata_kmeans, aes(LogPeriod,LogERadius ,color = fit_kmeans$cluster)) + geom_point() +labs(title="Clustering solutions of Exoplanets")
+
+# To add cluster column to the dataset
+exo_data2$type <- fit_kmeans$cluster
+exo_data2$type <- as.numeric(exo_data2$type)
+
+#To rename the clusters with specific labels
+exo_data2$type[exo_data2$type == 1] <- "cold_gas_giants"
+exo_data2$type[exo_data2$type == 2] <- "hot_jupiters"
+exo_data2$type[exo_data2$type == 3] <- "Rocky"
+exo_data2$type[exo_data2$type == 4] <- "others"
+
+# To observe the cluster split and the type of planets
+print("The clusters obtained from kmeans are")
+table(fit_kmeans$cluster)
+print("The clustering labels assigned to clusters")
+table(exo_data2$type) 
+```
+*Question 8:*
+Use a violin plot to illustrate how these clusters relate to the log-mass of the exoplanet.
+```{r,warning=FALSE}
+ggplot(exo_data2, aes(x = type, y = log(mass))) + geom_violin() +labs(title="Violin plot of log-mass of the exoplanet")
+```
+*Question 9:*
+Transform r_asc and decl into two new variables that are the same varibales but in values of seconds.
+```{r,Warning=FALSE}
+
+# Converting r_asc to hh:mm:ss
+exo_data$r_asc <- gsub(" ", ":", exo_data$r_asc, fixed = TRUE)
+exo_data$r_asc <- hms(exo_data$r_asc)
+
+# Finally converting r_asc to seconds into a new variable called "r_asc_seconds"
+exo_data$r_asc_seconds <- period_to_seconds(exo_data$r_asc)
+
+# Converting decl to hh:mm:ss
+exo_data$decl <- gsub(" ", ":", exo_data$decl, fixed = TRUE)
+exo_data$decl <- hms(exo_data$decl)
+
+# Finally converting decl to seconds into a new variable called "decl_seconds"
+exo_data$decl_seconds <- period_to_seconds(exo_data$decl)
+
+# Creating a scatterplot representing a celestial map for the exoplanets
+ggplot(exo_data, aes(x = r_asc_seconds, y = decl_seconds, color = meth)) +
+  geom_point() +
+  xlab('Right ascension (seconds)') +
+  ylab('Declination (seconds)') +
+  ggtitle('Celestial map for exoplanets') +
+  scale_color_discrete(name = 'Discovery method')
+```
+
+*Question 10:*
+An animated time series where multiple lines illustrate the evolution over time of the total number of exoplanets discovered for each method up to that year.
+
+```{r,warning=FALSE,message=FALSE}
+# To group the data in terms of methods of discovery
+anim_time_seri <- exo_data %>% group_by(meth, year) %>%  summarise(Count = length(meth)) %>%
+                          mutate(Count = cumsum(Count))
+
+# To omit the observations which are empty
+anim_time_seri <- na.omit(anim_time_seri)
+
+# TO plot the animated time series
+ggplot(anim_time_seri, aes(x = year, y = Count, group = meth)) + 
+  geom_line(aes(color = meth)) + 
+  geom_point(size = 2) + 
+  transition_reveal(year) + 
+  labs(title = 'Evolution of Total number of exoplanets discovered by methods', y = 'Number Discovered') 
+```
+*Question 11:*
+```{r}
+# Define UI for application that draws a scatterplot
+ui <- fluidPage(
+  
+        sliderInput("slider1",
+                    "Select Year",
+                    min=2009,
+                    max(exo_data2$year, na.rm = TRUE),
+                    max(exo_data2$year,na.rm = TRUE),
+                    round = TRUE, 
+                    sep = '', 
+                    width = '100%',
+                    step = 1,
+                    ticks = FALSE),
+        
+        selectInput(inputId = "exo_type",
+                    label = "Type",
+                    choices = c('hot_jupiters','Rocky','cold_gas_giants','others',"all"),
+                    selected = 0),
+        
+        # Plot of the generated distribution
+        plotOutput("scatter1",height = 450)
+)
+
+# Define server logic required to draw a scatterplot
+server <- function(input, output) {
+    
+    # Organizing data, only include planets with known mass
+    # Create scatterplot of all year's discoveries by the selected years
+    output$scatter1 = renderPlot({
+      if(input$exo_type=="all")
+      {
+        scatter1data<-exo_data2 %>%filter(., year <= input$slider1, !is.na(mass),
+                                     !is.na(dist))
+      }
+      else
+      {
+        scatter1data<-exo_data2 %>%filter(., year <= input$slider1, !is.na(mass),
+                                     !is.na(dist)) %>% filter(., type == input$exo_type)
+      }
+      ggplot(scatter1data, aes(x = log(dist), 
+                               y = log(mass),
+                               color = meth)) +
+            geom_point(size = 3) +
+            labs(title = paste("Discoveries Through", input$slider1),
+                 x = "Distance of Exoplanet Star from Sun",
+                 y = "Planet Mass",
+                 colour = NULL) 
+            
+    })
+  
+}
+
+# Run the shiny application 
+shinyApp(ui = ui, server = server)
+```
+*Exercise 12:*
+Fit a linear regression model
+```{r}
+# To create a new dataset
+ed <- exo_data
+
+# To exclude the unknown values
+ed <- ed[complete.cases(ed$period) & complete.cases(ed$host_mass) & complete.cases(ed$host_temp) & complete.cases(ed$axis),]
+
+# To fit the linear regression model
+fit <- lm(log(period)~log(host_mass)+log(host_temp)+log(axis), data = ed)
+```
+
+*Exercise 13:*
+```{r}
+# Summary of the fit
+summary(fit)
+# Plot the fit
+plot(fit)
+```
+From the summary of the fit produced above, Residuals gives information about the distribution of residuals, minimum is -2 and maximum is 3.4 approximately with median close to 0 indicating residuals are distributed normally.The typical values of residuals lies between range -0.027-0.027. 
+The intercept term is 5.66 and is significant as p-value < 0.05, for 1 unit increase in variable log(host_mass) the log(period) decreases by 0.40 and is statistically significant. For 1 unit increase in variable log(host_temp) the log(period) increases by 0.02, p value>0.05 hence it is not statistically significant.The variable log(axis) is also statistically significant and for 1 unit increase in this leads to increase in log(period) by 1.48.
+R-squared measures the proportion of the variation in the dependent variable explained by the independent variables, whereas Adjusted R-squared adjusts the statistic based on the number of independent variables in the model by adding the penalty. That is the desired property of a goodness-of-fit statistic. We will consider Adjusted R-squared as the better measure of the fit due to multiple variables present. In our case, we have approximately the same value for R-squared and Adjusted R-squared, which means that the model is fitting the data very well as the model is explaining ~99.29% of the variation in the data.
+
+Interpreting plots:
+
+From the plot residuals v/s fitted we can say that, the residuals lie around the red line at 0, indicates that the relationship is linear ,residuals creates a band like structure hence variances are equal and there are few residuals we can observe that stands out from basic pattern, these are outliers.
+From the QQ plot we can say that only the residuals at both the extremes are deviated away from the red line, these are outliers.
+The Scale-Location plot indicates heteroskedasticity, which means that the residuals are not randomly spread along the red line.
+The Residuals vs Leverage plot indicates the presence of influential cases. We can see some extreme cases but they may not be necessarily considered influential.
+
+*Question 14:*
+At the beginning of this file, it is specified that the runtime is shiny which means the shiny application has been embedded into this RMarkdown document.
